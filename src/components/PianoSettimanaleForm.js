@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiunto isLoading
+export default function PianoSettimanaleForm({ onSubmit, isLoading }) {
   const [formData, setFormData] = useState({
     eta: "",
     peso: "",
@@ -24,7 +24,7 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
 
   const validateForm = () => {
     let newErrors = {};
-    // Esempio di validazione: l'età deve essere un numero positivo
+    // Validazione: l'età deve essere un numero positivo
     if (!formData.eta || isNaN(formData.eta) || parseInt(formData.eta) <= 0) {
       newErrors.eta = "Inserisci un'età valida (numero positivo).";
     }
@@ -37,11 +37,10 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
     if (!formData.sesso) {
       newErrors.sesso = "Seleziona il tuo sesso.";
     }
-    // L'attività è un valore numerico da 1 a 5 nel tuo backend, assicurati che sia così anche nel frontend.
-    if (!formData.attivita || isNaN(formData.attivita) || parseInt(formData.attivita) < 1 || parseInt(formData.attivita) > 5) {
-      newErrors.attivita = "Inserisci un livello di attività da 1 a 5.";
+    if (!formData.attivita) { // Aggiunta validazione per attività
+        newErrors.attivita = "Seleziona il tuo livello di attività.";
     }
-    if (!formData.deficit_giornaliero || isNaN(formData.deficit_giornaliero) || parseInt(formData.deficit_giornaliero) < 0) {
+    if (formData.deficit_giornaliero === "" || isNaN(formData.deficit_giornaliero) || parseInt(formData.deficit_giornaliero) < 0) {
       newErrors.deficit_giornaliero = "Inserisci un deficit calorico valido (numero positivo o zero).";
     }
 
@@ -54,37 +53,40 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
     if (validateForm()) { // Esegui la validazione prima di inviare
       onSubmit(formData);
     } else {
-      console.log("Form non valido, correggi gli errori."); // Aggiungi un feedback per l'utente
+      // Puoi aggiungere un feedback visivo qui, ad esempio scrollando al primo errore
+      console.log("Form non valido, correggi gli errori.");
     }
   };
 
   return (
-    <div style={styles.formContainer}>
-      <h3 style={styles.formTitle}>Inserisci i Tuoi Dati</h3>
-      <p style={styles.formDescription}>
+    <div className="bg-white border border-gray-200 rounded-lg p-6 mt-8 shadow-md">
+      <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center border-b-2 border-blue-500 pb-3">
+        Inserisci i Tuoi Dati
+      </h3>
+      <p className="text-base text-gray-600 text-center mb-6 leading-relaxed">
         Compila i campi qui sotto per calcolare il tuo fabbisogno e generare un piano nutrizionale.
       </p>
-      <form onSubmit={handleSubmit} style={styles.form}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         {/* Età */}
-        <div style={styles.formGroup}>
-          <label htmlFor="eta" style={styles.label}>Età:</label>
+        <div className="mb-2">
+          <label htmlFor="eta" className="block text-sm font-semibold text-gray-700 mb-2">Età:</label>
           <input
-            type="number" // Usa type="number" per input numerici
+            type="number"
             id="eta"
             name="eta"
             placeholder="La tua età in anni"
             value={formData.eta}
             onChange={handleChange}
             required
-            min="1" // Età minima
-            style={errors.eta ? styles.inputError : styles.input}
+            min="1"
+            className={`w-full p-3 border rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.eta ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           />
-          {errors.eta && <p style={styles.errorMessage}>{errors.eta}</p>}
+          {errors.eta && <p className="text-red-600 text-sm mt-1">{errors.eta}</p>}
         </div>
 
         {/* Peso */}
-        <div style={styles.formGroup}>
-          <label htmlFor="peso" style={styles.label}>Peso (kg):</label>
+        <div className="mb-2">
+          <label htmlFor="peso" className="block text-sm font-semibold text-gray-700 mb-2">Peso (kg):</label>
           <input
             type="number"
             id="peso"
@@ -94,15 +96,15 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
             onChange={handleChange}
             required
             min="1"
-            step="0.1" // Permetti decimali per il peso
-            style={errors.peso ? styles.inputError : styles.input}
+            step="0.1"
+            className={`w-full p-3 border rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.peso ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           />
-          {errors.peso && <p style={styles.errorMessage}>{errors.peso}</p>}
+          {errors.peso && <p className="text-red-600 text-sm mt-1">{errors.peso}</p>}
         </div>
 
         {/* Altezza */}
-        <div style={styles.formGroup}>
-          <label htmlFor="altezza" style={styles.label}>Altezza (cm):</label>
+        <div className="mb-2">
+          <label htmlFor="altezza" className="block text-sm font-semibold text-gray-700 mb-2">Altezza (cm):</label>
           <input
             type="number"
             id="altezza"
@@ -112,53 +114,52 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
             onChange={handleChange}
             required
             min="1"
-            style={errors.altezza ? styles.inputError : styles.input}
+            className={`w-full p-3 border rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.altezza ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           />
-          {errors.altezza && <p style={styles.errorMessage}>{errors.altezza}</p>}
+          {errors.altezza && <p className="text-red-600 text-sm mt-1">{errors.altezza}</p>}
         </div>
 
         {/* Sesso */}
-        <div style={styles.formGroup}>
-          <label htmlFor="sesso" style={styles.label}>Sesso:</label>
+        <div className="mb-2">
+          <label htmlFor="sesso" className="block text-sm font-semibold text-gray-700 mb-2">Sesso:</label>
           <select
             id="sesso"
             name="sesso"
             value={formData.sesso}
             onChange={handleChange}
             required
-            style={errors.sesso ? styles.inputError : styles.select}
+            className={`w-full p-3 border rounded-md text-base bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.sesso ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           >
             <option value="">Seleziona</option>
             <option value="M">Maschio</option>
             <option value="F">Femmina</option>
           </select>
-          {errors.sesso && <p style={styles.errorMessage}>{errors.sesso}</p>}
+          {errors.sesso && <p className="text-red-600 text-sm mt-1">{errors.sesso}</p>}
         </div>
 
         {/* Attività */}
-        <div style={styles.formGroup}>
-          <label htmlFor="attivita" style={styles.label}>Livello di Attività Fisica (LAF):</label>
+        <div className="mb-2">
+          <label htmlFor="attivita" className="block text-sm font-semibold text-gray-700 mb-2">Livello di Attività Fisica (LAF):</label>
           <select
             id="attivita"
             name="attivita"
             value={formData.attivita}
             onChange={handleChange}
             required
-            style={errors.attivita ? styles.inputError : styles.select}
+            className={`w-full p-3 border rounded-md text-base bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.attivita ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           >
             <option value="">Seleziona il tuo livello</option>
-            <option value="1">1 (Sedentario: poco o nessun esercizio)</option>
-            <option value="2">2 (Leggermente attivo: esercizio leggero 1-3 gg/sett.)</option>
-            <option value="3">3 (Moderatamente attivo: esercizio moderato 3-5 gg/sett.)</option>
-            <option value="4">4 (Molto attivo: esercizio intenso 6-7 gg/sett.)</option>
-            <option value="5">5 (Estremamente attivo: esercizio molto intenso, lavoro fisico)</option>
+            <option value="sedentario">Sedentario: poco o nessun esercizio</option>
+            <option value="poco_attivo">Poco Attivo: esercizio leggero 1-3 gg/sett.</option>
+            <option value="attivo">Attivo: esercizio moderato 3-5 gg/sett.</option>
+            <option value="molto_attivo">Molto Attivo: esercizio intenso 6-7 gg/sett.</option>
           </select>
-          {errors.attivita && <p style={styles.errorMessage}>{errors.attivita}</p>}
+          {errors.attivita && <p className="text-red-600 text-sm mt-1">{errors.attivita}</p>}
         </div>
 
         {/* Deficit Giornaliero */}
-        <div style={styles.formGroup}>
-          <label htmlFor="deficit_giornaliero" style={styles.label}>Deficit Calorico Giornaliero (kcal):</label>
+        <div className="mb-2">
+          <label htmlFor="deficit_giornaliero" className="block text-sm font-semibold text-gray-700 mb-2">Deficit Calorico Giornaliero (kcal):</label>
           <input
             type="number"
             id="deficit_giornaliero"
@@ -167,107 +168,26 @@ export default function PianoSettimanaleForm({ onSubmit, isLoading }) { // Aggiu
             value={formData.deficit_giornaliero}
             onChange={handleChange}
             required
-            min="0" // Deficit non può essere negativo
-            style={errors.deficit_giornaliero ? styles.inputError : styles.input}
+            min="0"
+            className={`w-full p-3 border rounded-md text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 ease-in-out ${errors.deficit_giornaliero ? 'border-red-500 bg-red-50' : 'border-gray-300'}`}
           />
-          {errors.deficit_giornaliero && <p style={styles.errorMessage}>{errors.deficit_giornaliero}</p>}
+          {errors.deficit_giornaliero && <p className="text-red-600 text-sm mt-1">{errors.deficit_giornaliero}</p>}
         </div>
 
-        <button type="submit" style={styles.submitButton} disabled={isLoading}>
-          {isLoading ? "Calcolo in corso..." : "Calcola Piano"}
+        <button
+          type="submit"
+          className="bg-green-600 text-white py-3 px-6 rounded-lg text-lg font-bold cursor-pointer transition-colors duration-300 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <span className="flex items-center justify-center">
+              Calcolo in corso... <div className="border-4 border-gray-200 border-l-white rounded-full w-5 h-5 animate-spin ml-2"></div>
+            </span>
+          ) : (
+            "Calcola Piano"
+          )}
         </button>
       </form>
     </div>
   );
 }
-
-// --- Stili CSS (da spostare in un file .css o gestiti con libreria UI) ---
-const styles = {
-  formContainer: {
-    backgroundColor: '#ffffff',
-    border: '1px solid #e0e0e0',
-    borderRadius: '8px',
-    padding: '25px',
-    marginTop: '30px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-  },
-  formTitle: {
-    color: '#2c3e50',
-    fontSize: '1.8em',
-    marginBottom: '15px',
-    textAlign: 'center',
-    borderBottom: '2px solid #3498db',
-    paddingBottom: '10px',
-  },
-  formDescription: {
-    fontSize: '0.95em',
-    color: '#555',
-    textAlign: 'center',
-    marginBottom: '25px',
-    lineHeight: '1.5',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '20px', // Spazio tra i gruppi di form
-  },
-  formGroup: {
-    marginBottom: '10px',
-  },
-  label: {
-    display: 'block', // Per far sì che l'etichetta vada su una nuova riga
-    marginBottom: '8px',
-    fontWeight: 'bold',
-    color: '#333',
-    fontSize: '1em',
-  },
-  input: {
-    width: '100%',
-    padding: '12px',
-    border: '1px solid #ccc',
-    borderRadius: '6px',
-    fontSize: '1em',
-    boxSizing: 'border-box', // Include padding e bordo nella larghezza totale
-  },
-  select: {
-    width: '100%',
-    padding: '12px',
-    border: '1px solid #ccc',
-    borderRadius: '6px',
-    fontSize: '1em',
-    boxSizing: 'border-box',
-    backgroundColor: 'white',
-    cursor: 'pointer',
-  },
-  inputError: {
-    width: '100%',
-    padding: '12px',
-    border: '2px solid #e74c3c', // Bordo rosso per errore
-    borderRadius: '6px',
-    fontSize: '1em',
-    boxSizing: 'border-box',
-    backgroundColor: '#fffafa', // Sfondo leggermente rossastro
-  },
-  errorMessage: {
-    color: '#e74c3c',
-    fontSize: '0.85em',
-    marginTop: '5px',
-    marginBottom: '0',
-  },
-  submitButton: {
-    backgroundColor: '#28a745', // Un bel verde per il submit
-    color: 'white',
-    padding: '15px 25px',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '1.1em',
-    fontWeight: 'bold',
-    cursor: 'pointer',
-    marginTop: '20px',
-    transition: 'background-color 0.3s ease',
-  },
-  submitButtonDisabled: { // Questo andrebbe gestito con CSS reale (:disabled)
-    backgroundColor: '#a8d8b8',
-    cursor: 'not-allowed',
-  }
-};
