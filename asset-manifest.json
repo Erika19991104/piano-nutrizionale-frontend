@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/NutritionalApp/static/css/main.51b92859.css",
+    "main.js": "/NutritionalApp/static/js/main.4285add1.js",
+    "index.html": "/NutritionalApp/index.html",
+    "main.51b92859.css.map": "/NutritionalApp/static/css/main.51b92859.css.map",
+    "main.4285add1.js.map": "/NutritionalApp/static/js/main.4285add1.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.51b92859.css",
+    "static/js/main.4285add1.js"
+  ]
+}
