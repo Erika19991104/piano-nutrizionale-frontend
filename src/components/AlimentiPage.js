@@ -29,7 +29,7 @@ function App() {
   // ---------- STATI PER LA GESTIONE DEL FORM ----------
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
-    alimento_id: null,
+    id_alimento: null,
     nome_alimento: '',
     categoria: '',
     kcal: 0,
@@ -101,7 +101,7 @@ function App() {
 
     try {
       // Chiamata all'API per i dettagli di un singolo alimento.
-      const response = await fetch(`/api/alimenti/${alimento}`);
+      const response = await fetch(`/api/alimenti/${alimento.id_alimento}`);
       
       if (!response.ok) {
         throw new Error(`Errore HTTP: ${response.status}`);
@@ -125,7 +125,7 @@ function App() {
   const handleEditClick = () => {
     if (macroData) {
       setFormData({
-        alimento_id: macroData.alimento_id,
+        id_alimento: macroData.id_alimento,
         nome_alimento: macroData.nome_alimento,
         categoria: macroData.categoria || '',
         kcal: macroData.kcal || 0,
@@ -142,7 +142,7 @@ function App() {
   // Funzione per mostrare il form per la creazione di un nuovo alimento
   const handleCreateClick = () => {
     setFormData({
-      alimento_id: null,
+      id_alimento: null,
       nome_alimento: '',
       categoria: 'Altro', // Valore predefinito per la categoria
       kcal: 0,
@@ -173,8 +173,8 @@ function App() {
     }
     
     setLoadingMacro(true);
-    const method = formData.alimento_id ? 'PATCH' : 'POST';
-    const url = formData.alimento_id ? `/api/alimenti/${formData.alimento_id}` : '/api/alimenti/';
+    const method = formData.id_alimento ? 'PATCH' : 'POST';
+    const url = formData.id_alimento ? `/api/alimenti/${formData.id_alimento}` : '/api/alimenti/';
 
     // Costruisce il payload esattamente come richiesto dall'API
     const payload = {
@@ -208,7 +208,7 @@ function App() {
       setAlimenti(newAlimentiData);
 
       // Se era un nuovo alimento, selezionalo per mostrare i dettagli
-      if (!formData.alimento_id) {
+      if (!formData.id_alimento) {
         handleSelectAlimento(formData.nome_alimento);
       }
 
@@ -232,7 +232,7 @@ function App() {
 
   // Filtra gli alimenti in base al termine di ricerca.
   const filteredAlimenti = alimenti.filter(alimento =>
-    alimento.toLowerCase().includes(searchTerm.toLowerCase())
+    alimento.nome_alimento.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // Messaggio di caricamento iniziale.
@@ -299,7 +299,8 @@ function App() {
                     ${selectedAlimento === alimento ? 'bg-blue-100 text-blue-700 font-semibold shadow-md' : 'bg-gray-50 hover:bg-gray-100'}
                   `}
                 >
-                  <span className="capitalize">{alimento}</span>
+                  <span className="capitalize">{alimento.nome_alimento}</span>
+
                 </li>
               ))
             ) : (
@@ -314,7 +315,7 @@ function App() {
             // Form per aggiungere/modificare un alimento
             <form onSubmit={handleSaveForm} className="w-full max-w-xl bg-blue-50 p-8 rounded-2xl shadow-xl">
               <h2 className="text-3xl font-extrabold text-blue-600 mb-6 text-center">
-                {formData.alimento_id ? 'Modifica Alimento' : 'Aggiungi Nuovo Alimento'}
+                {formData.id_alimento ? 'Modifica Alimento' : 'Aggiungi Nuovo Alimento'}
               </h2>
               {/* Mostra l'errore del form se presente */}
               {formError && (

@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
  */
 function ClientiPage() {
   // Base URL per le API (sostituire con il tuo URL reale del backend)
-  const API_BASE_URL = 'http://localhost:3000'; // Esempio: 'https://tuoapi.com'
+  const API_BASE_URL = 'http://localhost:8000'; // Esempio: 'https://tuoapi.com'
 
   // ---------- STATI PER LA GESTIONE DEI CLIENTI ----------
   const [clienti, setClienti] = useState([]);

@@ -1,453 +1,406 @@
-import React, { useState, useEffect } from 'react';
-import { LuChevronDown, LuChevronUp, LuLoaderCircle, LuSave } from 'react-icons/lu';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useForm, useWatch, SubmitHandler } from 'react-hook-form';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line
+} from 'recharts';
+import { LuLoaderCircle, LuSave } from 'react-icons/lu';
 
-// URL di base per le API. Sostituisci con l'URL corretto del tuo server FastAPI.
-const API_BASE_URL = 'http://localhost:8000';
-// ID utente di esempio. Sostituisci con l'ID utente reale della tua applicazione.
-const USER_ID = '5c5c0250-34fb-489d-8f1f-f0d96daa05d8';
 
-const PianiNutrizionaliPage = () => {
-    // Stato per memorizzare il piano settimanale originale e quello modificabile
-    const [weeklyPlan, setWeeklyPlan] = useState(null);
-    const [editablePlan, setEditablePlan] = useState(null);
-    // Stato per tenere traccia delle ricette espanse
-    const [expandedRecipeIds, setExpandedRecipeIds] = useState({});
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
-    // Stato per gestire il salvataggio
-    const [isSaving, setIsSaving] = useState(false);
-    const [saveStatus, setSaveStatus] = useState(null); // 'success', 'error', 'idle'
-    // Stato per gestire il valore degli input di testo per ogni ingrediente
-    const [inputValues, setInputValues] = useState({});
-    // Nuovo stato per gestire il caricamento per ogni singolo pasto durante il ricalcolo
-    const [isMealLoading, setIsMealLoading] = useState({});
 
-    // Funzione per chiamare l'API per il piano settimanale
-    const fetchWeeklyPlan = async () => {
-        setIsLoading(true);
-        setError(null);
-        setSaveStatus(null);
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/piani-nutrizionali/piani/piano-settimanale/${USER_ID}`);
-            if (!response.ok) {
-                throw new Error(`Errore HTTP: ${response.status}`);
-            }
-            const data = await response.json();
-            
-            const rawPlan = data.piano_settimanale.piano_settimanale;
-            
-            if (!rawPlan || Object.keys(rawPlan).length === 0) {
-                setWeeklyPlan([]);
-                setEditablePlan([]);
-                return;
-            }
+// URL di base per le API
+const API_BASE_URL = '/api';
 
-            const formattedPlan = Object.entries(rawPlan).map(([giorno, dettagli_giorno]) => {
-                const pastiArray = [];
-                if (dettagli_giorno) {
-                    Object.entries(dettagli_giorno).forEach(([nomePasto, dettagliPasto]) => {
-                        if (dettagliPasto && dettagliPasto.ricetta && dettagliPasto.riproporzionata && dettagliPasto.riproporzionata.macro_riproporzionate) {
-                            const pasto = {
-                                pasto: nomePasto.charAt(0).toUpperCase() + nomePasto.slice(1),
-                                nome: dettagliPasto.ricetta.nome,
-                                tipo: 'Ricetta',
-                                id_ricetta: dettagliPasto.ricetta.ricetta_id,
-                                quantita: '1 porzione',
-                                kcal: dettagliPasto.riproporzionata.macro_riproporzionate.kcal,
-                                proteine: dettagliPasto.riproporzionata.macro_riproporzionate.proteine,
-                                carboidrati: dettagliPasto.riproporzionata.macro_riproporzionate.carboidrati,
-                                lipidi: dettagliPasto.riproporzionata.macro_riproporzionate.lipidi,
-                                ingredienti_riproporzionati: dettagliPasto.riproporzionata.ingredienti_riproporzionati || [],
-                            };
-                            pastiArray.push(pasto);
-                        }
-                    });
-                }
-                return {
-                    giorno: giorno.charAt(0).toUpperCase() + giorno.slice(1),
-                    pasti: pastiArray,
-                };
-            });
-            
-            const order = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
-            formattedPlan.sort((a, b) => order.indexOf(a.giorno) - order.indexOf(b.giorno));
+const NutritionalTrackerPage = () => {
+  const [userId, setUserId] = useState('5c5c0250-34fb-489d-8f1f-f0d96daa05d8');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [weeklyStartDate, setWeeklyStartDate] = useState(
+    new Date(new Date().setDate(new Date().getDate() - new Date().getDay() + 1)).toISOString().split('T')[0]
+  );
 
-            setWeeklyPlan(formattedPlan);
-            setEditablePlan(JSON.parse(JSON.stringify(formattedPlan)));
-            
-            // Inizializza inputValues per tutti gli ingredienti
-            const initialInputValues = {};
-            formattedPlan.forEach((day, dayIndex) => {
-                day.pasti.forEach((pasto, mealIndex) => {
-                    pasto.ingredienti_riproporzionati.forEach((ingrediente, ingredientIndex) => {
-                        const inputKey = `${dayIndex}-${mealIndex}-${ingredientIndex}`;
-                        initialInputValues[inputKey] = (ingrediente.quantita_g || 0) > 0 
-                            ? (ingrediente.quantita_g || 0).toFixed(1).replace('.', ',')
-                            : '';
-                    });
-                });
-            });
-            setInputValues(initialInputValues);
+  const [dailyTotals, setDailyTotals] = useState(null);
+  const [dailyMealMacros, setDailyMealMacros] = useState([]);
+  const [weeklyData, setWeeklyData] = useState(null);
+  const [alimenti, setAlimenti] = useState([]);
+  const [ricette, setRicette] = useState([]);
 
-        } catch (err) {
-            setError(err.message);
-            console.error("Errore nel recupero del piano settimanale:", err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    
-    // Funzione ASINCRONA per ricalcolare le macro di un pasto chiamando l'API
-    const recalculateMealMacros = async (recipeId, ingredients) => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/ricette/recalculate-macros`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                    ricetta_id: recipeId,
-                    ingredienti_riproporzionati: ingredients 
-                }),
-            });
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
-            if (!response.ok) {
-                throw new Error(`Errore durante il ricalcolo delle macro: ${response.status}`);
-            }
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm();
+  const tipoSelezionato = useWatch({
+    control,
+    name: 'tipo',
+    defaultValue: 'alimento',
+  });
 
-            const data = await response.json();
-            return data.macro_riproporzionate;
+  // Funzioni di fetching memorizzate con useCallback
+  const fetchDailyData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const [totalsRes, macrosRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/totali`),
+        fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/macro_pasto`),
+      ]);
 
-        } catch (err) {
-            console.error("Errore nel ricalcolo delle macro tramite API:", err);
-            return null;
-        }
-    };
+      if (!totalsRes.ok || !macrosRes.ok) {
+        throw new Error('Errore nel recupero dei dati giornalieri.');
+      }
 
-    // Gestore per la modifica della quantità di un ingrediente con ricalcolo dinamico tramite API
-    const handleIngredientQuantityChange = async (dayIndex, mealIndex, ingredientIndex, newQuantity) => {
-        const key = `${dayIndex}-${mealIndex}`;
-        setIsMealLoading(prev => ({ ...prev, [key]: true }));
+      const totalsData = await totalsRes.json();
+      const macrosData = await macrosRes.json();
 
-        const sanitizedQuantity = newQuantity.replace(',', '.');
-        const updatedQuantity = parseFloat(sanitizedQuantity);
+      setDailyTotals(totalsData.totali_macro_giornalieri);
+      setDailyMealMacros(macrosData.macro_per_pasto);
 
-        // Aggiorna lo stato inputValues per riflettere il valore corrente nel campo di testo
-        const inputKey = `${dayIndex}-${mealIndex}-${ingredientIndex}`;
-        setInputValues(prev => ({
-            ...prev,
-            [inputKey]: newQuantity
-        }));
-
-        setEditablePlan(prevPlan => {
-            if (!prevPlan) return prevPlan;
-            
-            const newPlan = JSON.parse(JSON.stringify(prevPlan));
-            const pasto = newPlan[dayIndex].pasti[mealIndex];
-            const ingredienti = pasto.ingredienti_riproporzionati;
-
-            if (!isNaN(updatedQuantity) && newQuantity.trim() !== '') {
-                ingredienti[ingredientIndex].quantita_g = updatedQuantity;
-            } else {
-                ingredienti[ingredientIndex].quantita_g = 0;
-            }
-
-            // Non ricalcoliamo localmente, ma prepariamo i dati per la chiamata API
-            // ... (la chiamata API avverrà dopo)
-            return newPlan;
-        });
-
-        // Ora, dopo aver aggiornato la quantità nell'editablePlan, chiamiamo l'API per il ricalcolo
-        try {
-            const currentPasto = editablePlan[dayIndex].pasti[mealIndex];
-            const newMacros = await recalculateMealMacros(currentPasto.id_ricetta, currentPasto.ingredienti_riproporzionati);
-            
-            if (newMacros) {
-                setEditablePlan(prevPlan => {
-                    if (!prevPlan) return prevPlan;
-                    const newPlan = JSON.parse(JSON.stringify(prevPlan));
-                    const pasto = newPlan[dayIndex].pasti[mealIndex];
-                    pasto.kcal = newMacros.kcal;
-                    pasto.proteine = newMacros.proteine;
-                    pasto.carboidrati = newMacros.carboidrati;
-                    pasto.lipidi = newMacros.lipidi;
-                    return newPlan;
-                });
-            }
-        } finally {
-            // Rimuovi lo stato di caricamento del pasto
-            setIsMealLoading(prev => {
-                const newLoading = { ...prev };
-                delete newLoading[key];
-                return newLoading;
-            });
-            setSaveStatus('idle');
-        }
-    };
-    
-    // Funzione per salvare le modifiche sul server
-    const handleSave = async () => {
-        setIsSaving(true);
-        setSaveStatus(null);
-        try {
-            // Formatta i dati da inviare al server
-            const planToSave = editablePlan.reduce((acc, day) => {
-                acc[day.giorno.toLowerCase()] = day.pasti.reduce((mealAcc, pasto) => {
-                    mealAcc[pasto.pasto.toLowerCase()] = {
-                        ricetta: {
-                            nome: pasto.nome,
-                            ricetta_id: pasto.id_ricetta,
-                        },
-                        riproporzionata: {
-                            ingredienti_riproporzionati: pasto.ingredienti_riproporzionati,
-                        }
-                    };
-                    return mealAcc;
-                }, {});
-                return acc;
-            }, {});
-
-            const response = await fetch(`${API_BASE_URL}/api/piani-nutrizionali/piani/piano-settimanale/${USER_ID}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ piano_settimanale: planToSave }),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Errore durante il salvataggio: ${response.status}`);
-            }
-
-            // Aggiorna il weeklyPlan con i dati modificati
-            setWeeklyPlan(JSON.parse(JSON.stringify(editablePlan)));
-            setSaveStatus('success');
-
-        } catch (err) {
-            setSaveStatus('error');
-            console.error("Errore durante il salvataggio:", err);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    // Caricamento iniziale del piano settimanale
-    useEffect(() => {
-        fetchWeeklyPlan();
-    }, []);
-
-    // Gestore per l'espansione/riduzione delle ricette
-    const handleToggleRecipe = (dayIndex, mealIndex, pasto) => {
-        if (!pasto.id_ricetta) return; 
-        
-        const key = `${dayIndex}-${mealIndex}`;
-        const isExpanded = expandedRecipeIds[key];
-        
-        setExpandedRecipeIds(prev => {
-            const newExpanded = { ...prev };
-            if (isExpanded) {
-                delete newExpanded[key];
-            } else {
-                newExpanded[key] = true;
-            }
-            return newExpanded;
-        });
-    };
-
-    // Gestori per gli stati di caricamento ed errore
-    if (isLoading) {
-        return (
-            <div className="flex justify-center items-center h-64 text-indigo-600">
-                <LuLoaderCircle className="animate-spin text-4xl mr-2" />
-                <span className="text-xl">Caricamento del piano settimanale...</span>
-            </div>
-        );
+    } catch (err) {
+      setError(err.message);
+      console.error(err);
+    } finally {
+      setIsLoading(false);
     }
+  }, [userId, selectedDate]);
 
-    if (error) {
-        return <div className="text-center p-8 text-red-500 font-medium">Errore: {error}</div>;
+  const fetchWeeklyData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/consumi/${userId}/settimanale?start_date=${weeklyStartDate}`);
+      if (!res.ok) {
+        throw new Error('Errore nel recupero dei dati settimanali.');
+      }
+      const data = await res.json();
+      setWeeklyData(data.totali_settimanali);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
     }
+  }, [userId, weeklyStartDate]);
 
-    if (!editablePlan || editablePlan.length === 0) {
-        return <div className="text-center p-8 text-gray-500">Nessun piano settimanale trovato.</div>;
+  const fetchAlimenti = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/alimenti/`);
+      const data = await res.json();
+      setAlimenti(data);
+    } catch (err) {
+      console.error("Errore nel recupero degli alimenti:", err);
+    }
+  }, []);
+
+  const fetchRicette = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/ricette/`);
+      const data = await res.json();
+      setRicette(data);
+    } catch (err) {
+      console.error("Errore nel recupero delle ricette:", err);
+    }
+  }, []);
+
+  // Funzione per l'invio del form, ora con la correzione dell'ID
+  const onSubmit = async (data) => {
+    setIsSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    // Costruiamo il payload in base al tipo di consumo
+    let payload;
+    if (data.tipo === 'alimento') {
+      payload = {
+        user_id: userId,
+        giorno: selectedDate,
+        pasto: data.pasto,
+        alimento_id: data.nome,
+        quantita_g: data.quantita,
+        ricetta_id: null,
+        quantita: null,
+      };
+    } else if (data.tipo === 'ricetta') {
+      payload = {
+        user_id: userId,
+        giorno: selectedDate,
+        pasto: data.pasto,
+        ricetta_id: data.nome,
+        quantita: data.quantita,
+        alimento_id: null,
+        quantita_g: null,
+      };
     }
     
-    // Funzione per calcolare i totali giornalieri
-    const calculateDailyTotals = (pasti) => {
-      return pasti.reduce((acc, pasto) => {
-        acc.kcal += pasto.kcal || 0;
-        acc.proteine += pasto.proteine || 0;
-        acc.carboidrati += pasto.carboidrati || 0;
-        acc.grassi += pasto.lipidi || 0;
-        return acc;
-      }, { kcal: 0, proteine: 0, carboidrati: 0, grassi: 0 });
-    };
+    try {
+      const res = await fetch(`${API_BASE_URL}/consumi/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Inviare il payload corretto
+        body: JSON.stringify(payload),
+      });
 
-    // Controlla se ci sono modifiche non salvate
-    const hasUnsavedChanges = JSON.stringify(weeklyPlan) !== JSON.stringify(editablePlan);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(`Errore durante l'inserimento: ${errorData.detail}`);
+      }
+      setSuccess("Consumo registrato con successo!");
+      
+      // Aggiorniamo i dati dopo l'inserimento
+      await fetchDailyData();
+      await fetchWeeklyData();
+      reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Si è verificato un errore sconosciuto.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-    return (
-        <div className="bg-white p-6 rounded-lg shadow-xl">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-semibold text-gray-800">Piani Nutrizionali Settimanali</h2>
-                <div className="flex items-center space-x-4">
-                    {saveStatus === 'success' && (
-                        <div className="text-green-500 font-medium">Modifiche salvate con successo!</div>
-                    )}
-                    {saveStatus === 'error' && (
-                        <div className="text-red-500 font-medium">Errore durante il salvataggio. Riprova.</div>
-                    )}
-                    <button
-                        onClick={handleSave}
-                        disabled={!hasUnsavedChanges || isSaving}
-                        className={`
-                            px-4 py-2 rounded-lg font-medium transition-colors duration-200
-                            ${!hasUnsavedChanges || isSaving
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                            }
-                        `}
-                    >
-                        {isSaving ? (
-                            <LuLoaderCircle className="animate-spin inline-block mr-2" size={20} />
-                        ) : (
-                            <LuSave className="inline-block mr-2" size={20} />
-                        )}
-                        Salva modifiche
-                    </button>
-                </div>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="min-w-full bg-white border-separate border-spacing-y-2">
-                    <thead>
-                        <tr className="bg-gray-100 text-left text-sm font-medium text-gray-500 uppercase">
-                            <th className="px-6 py-3 rounded-l-lg">Pasto</th>
-                            <th className="px-6 py-3">Alimento / Ricetta</th>
-                            <th className="px-6 py-3">Quantità / Porzioni</th>
-                            <th className="px-6 py-3">Kcal</th>
-                            <th className="px-6 py-3">Proteine (g)</th>
-                            <th className="px-6 py-3">Carboidrati (g)</th>
-                            <th className="px-6 py-3 rounded-r-lg">Grassi (g)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {editablePlan.map((day, dayIndex) => {
-                            const dailyTotals = calculateDailyTotals(day.pasti);
-                            return (
-                                <React.Fragment key={day.giorno}>
-                                    <tr className="bg-indigo-100 font-bold text-lg text-gray-800">
-                                        <td colSpan="7" className="px-6 py-4 rounded-lg">
-                                            {day.giorno}
-                                        </td>
-                                    </tr>
-                                    {day.pasti.map((pasto, mealIndex) => {
-                                        const key = `${dayIndex}-${mealIndex}`;
-                                        const isLoading = isMealLoading[key];
+  // useEffect che si attivano solo quando le loro dipendenze cambiano.
+  useEffect(() => {
+    fetchDailyData();
+  }, [fetchDailyData]);
 
-                                        return (
-                                        <React.Fragment key={pasto.id_ricetta ? `${day.giorno}-${pasto.pasto}-${pasto.id_ricetta}` : `${day.giorno}-${pasto.pasto}-${mealIndex}`}>
-                                            <tr className="bg-gray-50 border-b border-gray-200 hover:bg-gray-100 transition-colors duration-200">
-                                                <td className="px-6 py-4 font-medium text-gray-900">{pasto.pasto}</td>
-                                                <td className="px-6 py-4 text-gray-600 flex items-center">
-                                                    {pasto.nome}
-                                                    {pasto.tipo === 'Ricetta' && (
-                                                        <button
-                                                            onClick={() => handleToggleRecipe(dayIndex, mealIndex, pasto)}
-                                                            className="ml-2 text-indigo-500 hover:text-indigo-700 transition-colors duration-200"
-                                                            title="Espandi ingredienti"
-                                                        >
-                                                            {expandedRecipeIds[key] ? <LuChevronUp size={18} /> : <LuChevronDown size={18} />}
-                                                        </button>
-                                                    )}
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600">
-                                                  {isLoading ? (
-                                                      <LuLoaderCircle className="animate-spin text-indigo-500" size={20} />
-                                                  ) : (
-                                                      pasto.quantita
-                                                  )}
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600">
-                                                  {isLoading ? (
-                                                      <LuLoaderCircle className="animate-spin text-indigo-500" size={20} />
-                                                  ) : (
-                                                      (pasto.kcal || 0).toFixed(1)
-                                                  )}
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600">
-                                                  {isLoading ? (
-                                                      <LuLoaderCircle className="animate-spin text-indigo-500" size={20} />
-                                                  ) : (
-                                                      (pasto.proteine || 0).toFixed(1)
-                                                  )}
-                                                </td>
-                                                <td className="px-6 py-4 text-gray-600">
-                                                  {isLoading ? (
-                                                      <LuLoaderCircle className="animate-spin text-indigo-500" size={20} />
-                                                  ) : (
-                                                      (pasto.carboidrati || 0).toFixed(1)
-                                                  )}
-                                                </td>
-                                                <td className="px-6 py-4 rounded-r-lg text-gray-600">
-                                                  {isLoading ? (
-                                                      <LuLoaderCircle className="animate-spin text-indigo-500" size={20} />
-                                                  ) : (
-                                                      (pasto.lipidi || 0).toFixed(1)
-                                                  )}
-                                                </td>
-                                            </tr>
-                                            {pasto.id_ricetta && expandedRecipeIds[key] && pasto.ingredienti_riproporzionati && (
-                                                <tr className="bg-white border-b border-gray-200">
-                                                    <td colSpan="7" className="px-6 py-4">
-                                                        <div className="bg-gray-50 rounded-md p-4 mt-2 mb-4">
-                                                            <h4 className="font-semibold text-gray-700 mb-2">Ingredienti:</h4>
-                                                            <ul className="list-disc list-inside text-sm text-gray-600">
-                                                                {pasto.ingredienti_riproporzionati.map((ingrediente, i) => {
-                                                                    const inputKey = `${dayIndex}-${mealIndex}-${i}`;
-                                                                    const value = inputValues[inputKey] !== undefined 
-                                                                        ? inputValues[inputKey]
-                                                                        : (ingrediente.quantita_g || 0) > 0 
-                                                                            ? (ingrediente.quantita_g || 0).toFixed(1).replace('.', ',')
-                                                                            : '';
-                                                                    return (
-                                                                        <li key={i} className="flex items-center space-x-2 my-1">
-                                                                            <span className="min-w-[150px]">{ingrediente.nome_ingrediente} - </span>
-                                                                            <input
-                                                                                type="text"
-                                                                                value={value}
-                                                                                onChange={(e) => handleIngredientQuantityChange(dayIndex, mealIndex, i, e.target.value)}
-                                                                                className="w-20 p-1 border rounded text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                                                            />
-                                                                            <span className="text-gray-500">{ingrediente.unita_di_misura}</span>
-                                                                        </li>
-                                                                    );
-                                                                })}
-                                                            </ul>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </React.Fragment>
-                                        );
-                                    })}
-                                    {/* Riga totale giornaliero */}
-                                    <tr className="bg-indigo-50 border-b border-gray-200 font-bold text-gray-800">
-                                        <td colSpan="3" className="px-6 py-4 text-right rounded-l-lg">TOTALE GIORNO</td>
-                                        <td className="px-6 py-4">{dailyTotals.kcal.toFixed(1)}</td>
-                                        <td className="px-6 py-4">{dailyTotals.proteine.toFixed(1)}</td>
-                                        <td className="px-6 py-4">{dailyTotals.carboidrati.toFixed(1)}</td>
-                                        <td className="px-6 py-4 rounded-r-lg">{dailyTotals.grassi.toFixed(1)}</td>
-                                    </tr>
-                                    {/* Aggiungiamo un po' di spazio tra i giorni */}
-                                    <tr className="h-4"></tr>
-                                </React.Fragment>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
+  useEffect(() => {
+    fetchWeeklyData();
+  }, [fetchWeeklyData]);
+
+  useEffect(() => {
+    fetchAlimenti();
+    fetchRicette();
+  }, [fetchAlimenti, fetchRicette]);
+
+  const macroColors = {
+    proteine: '#34d399',
+    carboidrati: '#60a5fa',
+    lipidi: '#facc15',
+    fibra: '#c084fc',
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800">
+      <div className="max-w-7xl mx-auto space-y-8">
+        <h1 className="text-3xl md:text-4xl font-bold text-center text-indigo-700">
+          Gestione Piano Nutrizionale
+        </h1>
+
+        <div className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-8 bg-white p-4 rounded-lg shadow-md">
+          <div className="flex items-center space-x-2">
+            <label htmlFor="userId" className="font-semibold text-gray-700">User ID:</label>
+            <input
+              id="userId"
+              type="text"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <label htmlFor="dailyDate" className="font-semibold text-gray-700">Giorno:</label>
+            <input
+              id="dailyDate"
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+            />
+          </div>
         </div>
-    );
+
+        {error && (
+          <div className="p-4 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md">
+            <p className="font-semibold">Errore:</p>
+            <p>{error}</p>
+          </div>
+        )}
+        {success && (
+          <div className="p-4 bg-green-100 border-l-4 border-green-500 text-green-700 rounded-md">
+            <p className="font-semibold">Successo:</p>
+            <p>{success}</p>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="flex justify-center items-center h-64 text-indigo-600">
+            <LuLoaderCircle className="animate-spin text-4xl mr-2" />
+            <span className="text-xl">Caricamento dati...</span>
+          </div>
+        )}
+        
+        {/* Sezione Consumi Giornalieri */}
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold mb-4 text-gray-700">
+            Riepilogo Consumi Giornalieri ({selectedDate})
+          </h2>
+          {dailyTotals && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 text-center">
+              <div className="bg-blue-50 p-4 rounded-md shadow-sm">
+                <p className="font-bold text-lg text-blue-700">Kcal</p>
+                <p className="text-xl">{dailyTotals.kcal.toFixed(1)}</p>
+              </div>
+              <div className="bg-green-50 p-4 rounded-md shadow-sm">
+                <p className="font-bold text-lg text-green-700">Proteine (g)</p>
+                <p className="text-xl">{dailyTotals.proteine.toFixed(1)}</p>
+              </div>
+              <div className="bg-yellow-50 p-4 rounded-md shadow-sm">
+                <p className="font-bold text-lg text-yellow-700">Lipidi (g)</p>
+                <p className="text-xl">{dailyTotals.lipidi.toFixed(1)}</p>
+              </div>
+              <div className="bg-blue-50 p-4 rounded-md shadow-sm">
+                <p className="font-bold text-lg text-blue-700">Carboidrati (g)</p>
+                <p className="text-xl">{dailyTotals.carboidrati.toFixed(1)}</p>
+              </div>
+              <div className="bg-purple-50 p-4 rounded-md shadow-sm">
+                <p className="font-bold text-lg text-purple-700">Fibra (g)</p>
+                <p className="text-xl">{dailyTotals.fibra.toFixed(1)}</p>
+              </div>
+            </div>
+          )}
+
+          {dailyMealMacros && dailyMealMacros.length > 0 && (
+            <div>
+              <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                Distribuzione Macro per Pasto
+              </h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={dailyMealMacros}>
+                  <XAxis dataKey="pasto" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="proteine" fill={macroColors.proteine} name="Proteine" />
+                  <Bar dataKey="carboidrati" fill={macroColors.carboidrati} name="Carboidrati" />
+                  <Bar dataKey="lipidi" fill={macroColors.lipidi} name="Lipidi" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+
+        {/* Sezione Inserimento Consumo */}
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold mb-4 text-gray-700">
+            Aggiungi un Nuovo Consumo
+          </h2>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Tipo</label>
+                <select
+                  {...register('tipo', { required: 'Il tipo è obbligatorio' })}
+                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="alimento">Alimento</option>
+                  <option value="ricetta">Ricetta</option>
+                </select>
+                {errors.tipo && <span className="text-red-500 text-sm">{errors.tipo.message}</span>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Nome</label>
+                <select
+                  {...register('nome', { required: 'Il nome è obbligatorio' })}
+                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Seleziona...</option>
+                  {tipoSelezionato === 'alimento'
+                    ? alimenti.map((item) => (
+                        <option key={item.alimento_id} value={item.alimento_id}>
+                          {item.nome}
+                        </option>
+                      ))
+                    : ricette.map((item) => (
+                        <option key={item.ricetta_id} value={item.ricetta_id}>
+                          {item.nome}
+                        </option>
+                      ))}
+                </select>
+                {errors.nome && <span className="text-red-500 text-sm">{errors.nome.message}</span>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Quantità ({tipoSelezionato === 'alimento' ? 'g' : 'porzioni'})</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  {...register('quantita', { required: 'La quantità è obbligatoria', valueAsNumber: true })}
+                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                {errors.quantita && <span className="text-red-500 text-sm">{errors.quantita.message}</span>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Pasto</label>
+                <select
+                  {...register('pasto', { required: 'Il pasto è obbligatorio' })}
+                  className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="colazione">Colazione</option>
+                  <option value="pranzo">Pranzo</option>
+                  <option value="cena">Cena</option>
+                  <option value="spuntino">Spuntino</option>
+                </select>
+                {errors.pasto && <span className="text-red-500 text-sm">{errors.pasto.message}</span>}
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className={`w-full flex items-center justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white transition-colors
+                ${isSaving ? 'bg-indigo-300' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'}`}
+            >
+              {isSaving ? (
+                <>
+                  <LuLoaderCircle className="animate-spin mr-2" />
+                  Salvataggio...
+                </>
+              ) : (
+                <>
+                  <LuSave className="mr-2" />
+                  Aggiungi Consumo
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Sezione Macro Settimanali */}
+        <div className="bg-white p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold mb-4 text-gray-700">
+            Macro Settimanali
+          </h2>
+          <div className="flex items-center space-x-2 mb-4">
+            <label htmlFor="weeklyDate" className="font-semibold text-gray-700">Inizio Settimana:</label>
+            <input
+              id="weeklyDate"
+              type="date"
+              value={weeklyStartDate}
+              onChange={(e) => setWeeklyStartDate(e.target.value)}
+              className="p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          {weeklyData && Object.keys(weeklyData).length > 0 && (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={Object.entries(weeklyData).map(([day, macros]) => ({
+                  day: day,
+                  ...macros,
+                }))}
+              >
+                <XAxis dataKey="day" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="kcal" stroke="#3b82f6" name="Kcal" />
+                <Line type="monotone" dataKey="proteine" stroke={macroColors.proteine} name="Proteine" />
+                <Line type="monotone" dataKey="carboidrati" stroke={macroColors.carboidrati} name="Carboidrati" />
+                <Line type="monotone" dataKey="lipidi" stroke={macroColors.lipidi} name="Lipidi" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 };
 
-export default PianiNutrizionaliPage;
+export default NutritionalTrackerPage;
