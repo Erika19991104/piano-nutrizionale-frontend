@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useForm, useWatch, SubmitHandler } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line
+  LineChart, Line, PieChart, Pie, Cell
 } from 'recharts';
-import { LuLoaderCircle, LuSave } from 'react-icons/lu';
-
-
 
 // URL di base per le API
 const API_BASE_URL = '/api';
@@ -20,6 +17,7 @@ const NutritionalTrackerPage = () => {
 
   const [dailyTotals, setDailyTotals] = useState(null);
   const [dailyMealMacros, setDailyMealMacros] = useState([]);
+  const [dailySummary, setDailySummary] = useState([]);
   const [weeklyData, setWeeklyData] = useState(null);
   const [alimenti, setAlimenti] = useState([]);
   const [ricette, setRicette] = useState([]);
@@ -38,35 +36,58 @@ const NutritionalTrackerPage = () => {
 
   // Funzioni di fetching memorizzate con useCallback
   const fetchDailyData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
     try {
-      const [totalsRes, macrosRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/totali`),
-        fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/macro_pasto`),
-      ]);
-
-      if (!totalsRes.ok || !macrosRes.ok) {
+      const res = await fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/totali`);
+      if (!res.ok) {
         throw new Error('Errore nel recupero dei dati giornalieri.');
       }
-
-      const totalsData = await totalsRes.json();
-      const macrosData = await macrosRes.json();
-
-      setDailyTotals(totalsData.totali_macro_giornalieri);
-      setDailyMealMacros(macrosData.macro_per_pasto);
-
+      const data = await res.json();
+      setDailyTotals(data.totali_macro_giornalieri);
     } catch (err) {
       setError(err.message);
       console.error(err);
-    } finally {
-      setIsLoading(false);
+      setDailyTotals(null);
+      throw err;
+    }
+  }, [userId, selectedDate]);
+
+  const fetchDailyMealMacros = useCallback(async () => {
+  try {
+    const macrosRes = await fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/macro_pasto`);
+    if (!macrosRes.ok) {
+      throw new Error('Errore nel recupero dei dati macro per pasto.');
+    }
+    const macrosData = await macrosRes.json();
+    console.log('Dati macro per pasto ricevuti:', macrosData);
+    
+    // Rimuovi ".macro_per_pasto" per usare direttamente i dati
+    setDailyMealMacros(macrosData); 
+    
+  } catch (err) {
+    setError(err.message);
+    console.error(err);
+    setDailyMealMacros([]);
+    throw err;
+  }
+}, [userId, selectedDate]);
+  
+  const fetchDailySummary = useCallback(async () => {
+    try {
+      const summaryRes = await fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/riepilogo`);
+      if (!summaryRes.ok) {
+        throw new Error('Errore nel recupero del riepilogo dettagliato.');
+      }
+      const summaryData = await summaryRes.json();
+      setDailySummary(summaryData);
+    } catch (err) {
+      setError(err.message);
+      console.error(err);
+      setDailySummary([]);
+      throw err;
     }
   }, [userId, selectedDate]);
 
   const fetchWeeklyData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/consumi/${userId}/settimanale?start_date=${weeklyStartDate}`);
       if (!res.ok) {
@@ -76,8 +97,7 @@ const NutritionalTrackerPage = () => {
       setWeeklyData(data.totali_settimanali);
     } catch (err) {
       setError(err.message);
-    } finally {
-      setIsLoading(false);
+      throw err;
     }
   }, [userId, weeklyStartDate]);
 
@@ -101,14 +121,39 @@ const NutritionalTrackerPage = () => {
     }
   }, []);
 
-  // Funzione per l'invio del form, ora con la correzione dell'ID
+  // Funzione unificata per il fetching di tutti i dati
+  const fetchAllData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await Promise.all([
+        fetchDailyData(),
+        fetchDailyMealMacros(),
+        fetchDailySummary(),
+        fetchWeeklyData(),
+        fetchAlimenti(),
+        fetchRicette(),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Si è verificato un errore sconosciuto.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchDailyData, fetchDailyMealMacros, fetchDailySummary, fetchWeeklyData, fetchAlimenti, fetchRicette]);
+
+  // useEffect che si attiva al cambio di data o inizio settimana
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData, selectedDate, weeklyStartDate]);
+
+  // Funzione per l'invio del form, con la correzione del payload
   const onSubmit = async (data) => {
     setIsSaving(true);
     setError(null);
     setSuccess(null);
 
-    // Costruiamo il payload in base al tipo di consumo
     let payload;
+    
     if (data.tipo === 'alimento') {
       payload = {
         user_id: userId,
@@ -130,14 +175,13 @@ const NutritionalTrackerPage = () => {
         quantita_g: null,
       };
     }
-    
+    console.log(payload)
     try {
       const res = await fetch(`${API_BASE_URL}/consumi/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        // Inviare il payload corretto
         body: JSON.stringify(payload),
       });
 
@@ -145,42 +189,34 @@ const NutritionalTrackerPage = () => {
         const errorData = await res.json();
         throw new Error(`Errore durante l'inserimento: ${errorData.detail}`);
       }
-      setSuccess("Consumo registrato con successo!");
       
-      // Aggiorniamo i dati dopo l'inserimento
-      await fetchDailyData();
-      await fetchWeeklyData();
+      // Aggiorniamo tutti i dati solo dopo il successo
+      await fetchAllData();
+      
+      setSuccess("Consumo registrato con successo!");
       reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Si è verificato un errore sconosciuto.");
+      setSuccess(null);
     } finally {
       setIsSaving(false);
     }
   };
-
-  // useEffect che si attivano solo quando le loro dipendenze cambiano.
-  useEffect(() => {
-    fetchDailyData();
-  }, [fetchDailyData]);
-
-  useEffect(() => {
-    fetchWeeklyData();
-  }, [fetchWeeklyData]);
-
-  useEffect(() => {
-    fetchAlimenti();
-    fetchRicette();
-  }, [fetchAlimenti, fetchRicette]);
 
   const macroColors = {
     proteine: '#34d399',
     carboidrati: '#60a5fa',
     lipidi: '#facc15',
     fibra: '#c084fc',
+    // Colori per il grafico a torta
+    colazione: '#facc15',
+    pranzo: '#60a5fa',
+    cena: '#34d399',
+    spuntino: '#c084fc',
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800">
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800 font-sans antialiased">
       <div className="max-w-7xl mx-auto space-y-8">
         <h1 className="text-3xl md:text-4xl font-bold text-center text-indigo-700">
           Gestione Piano Nutrizionale
@@ -222,60 +258,139 @@ const NutritionalTrackerPage = () => {
           </div>
         )}
 
-        {isLoading && (
-          <div className="flex justify-center items-center h-64 text-indigo-600">
-            <LuLoaderCircle className="animate-spin text-4xl mr-2" />
-            <span className="text-xl">Caricamento dati...</span>
-          </div>
-        )}
-        
         {/* Sezione Consumi Giornalieri */}
         <div className="bg-white p-6 rounded-lg shadow-lg">
           <h2 className="text-2xl font-bold mb-4 text-gray-700">
             Riepilogo Consumi Giornalieri ({selectedDate})
           </h2>
-          {dailyTotals && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 text-center">
-              <div className="bg-blue-50 p-4 rounded-md shadow-sm">
-                <p className="font-bold text-lg text-blue-700">Kcal</p>
-                <p className="text-xl">{dailyTotals.kcal.toFixed(1)}</p>
-              </div>
-              <div className="bg-green-50 p-4 rounded-md shadow-sm">
-                <p className="font-bold text-lg text-green-700">Proteine (g)</p>
-                <p className="text-xl">{dailyTotals.proteine.toFixed(1)}</p>
-              </div>
-              <div className="bg-yellow-50 p-4 rounded-md shadow-sm">
-                <p className="font-bold text-lg text-yellow-700">Lipidi (g)</p>
-                <p className="text-xl">{dailyTotals.lipidi.toFixed(1)}</p>
-              </div>
-              <div className="bg-blue-50 p-4 rounded-md shadow-sm">
-                <p className="font-bold text-lg text-blue-700">Carboidrati (g)</p>
-                <p className="text-xl">{dailyTotals.carboidrati.toFixed(1)}</p>
-              </div>
-              <div className="bg-purple-50 p-4 rounded-md shadow-sm">
-                <p className="font-bold text-lg text-purple-700">Fibra (g)</p>
-                <p className="text-xl">{dailyTotals.fibra.toFixed(1)}</p>
-              </div>
+          {isLoading ? (
+            <div className="flex justify-center items-center h-64 text-indigo-600">
+              <span className="text-xl animate-pulse">⟳</span>
+              <span className="text-xl">Caricamento dati...</span>
             </div>
-          )}
+          ) : (
+            <>
+              {dailyTotals && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8 text-center">
+                  <div className="bg-blue-50 p-4 rounded-md shadow-sm">
+                    <p className="font-bold text-lg text-blue-700">Kcal</p>
+                    <p className="text-xl">{dailyTotals.kcal.toFixed(1)}</p>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-md shadow-sm">
+                    <p className="font-bold text-lg text-green-700">Proteine (g)</p>
+                    <p className="text-xl">{dailyTotals.proteine.toFixed(1)}</p>
+                  </div>
+                  <div className="bg-yellow-50 p-4 rounded-md shadow-sm">
+                    <p className="font-bold text-lg text-yellow-700">Lipidi (g)</p>
+                    <p className="text-xl">{dailyTotals.lipidi.toFixed(1)}</p>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-md shadow-sm">
+                    <p className="font-bold text-lg text-blue-700">Carboidrati (g)</p>
+                    <p className="text-xl">{dailyTotals.carboidrati.toFixed(1)}</p>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-md shadow-sm">
+                    <p className="font-bold text-lg text-purple-700">Fibra (g)</p>
+                    <p className="text-xl">{dailyTotals.fibra.toFixed(1)}</p>
+                  </div>
+                </div>
+              )}
 
-          {dailyMealMacros && dailyMealMacros.length > 0 && (
-            <div>
-              <h3 className="text-xl font-semibold mb-4 text-gray-700">
-                Distribuzione Macro per Pasto
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dailyMealMacros}>
-                  <XAxis dataKey="pasto" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="proteine" fill={macroColors.proteine} name="Proteine" />
-                  <Bar dataKey="carboidrati" fill={macroColors.carboidrati} name="Carboidrati" />
-                  <Bar dataKey="lipidi" fill={macroColors.lipidi} name="Lipidi" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+              {/* Tabella Riepilogo dettagliato */}
+              <div className="mt-8">
+                <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                  Dettaglio Consumi ({selectedDate})
+                </h3>
+                {dailySummary && dailySummary.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md shadow-md">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-100 dark:bg-gray-800">
+                        <tr>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tipo</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Pasto</th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Nome</th>
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Quantità</th>
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Kcal</th>
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Proteine</th>
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Lipidi</th>
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Carboidrati</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
+                        {dailySummary.map((item, index) => (
+                          <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-400">{item.tipo}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.pasto}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.nome}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.quantita !== null ? item.quantita.toFixed(0) : 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.kcal !== null ? item.kcal.toFixed(2) : 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.proteine !== null ? item.proteine.toFixed(2) : 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.lipidi !== null ? item.lipidi.toFixed(2) : 'N/A'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.carboidrati !== null ? item.carboidrati.toFixed(2) : 'N/A'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 italic">Nessun dettaglio di consumo trovato per questo giorno.</p>
+                )}
+              </div>
+
+              {/* Grafico a barre per la distribuzione dei macro per pasto */}
+              {dailyMealMacros && dailyMealMacros.length > 0 ? (
+                <div>
+                  <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                    Distribuzione Macro per Pasto
+                  </h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={dailyMealMacros}>
+                      <XAxis dataKey="pasto" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="proteine" fill={macroColors.proteine} name="Proteine" />
+                      <Bar dataKey="carboidrati" fill={macroColors.carboidrati} name="Carboidrati" />
+                      <Bar dataKey="lipidi" fill={macroColors.lipidi} name="Lipidi" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-gray-500 italic">Nessun dato sui pasti disponibile per questa data.</p>
+              )}
+              
+              {/* NUOVO BLOCCO: Grafico a torta per la distribuzione delle Kcal per pasto */}
+              <div className="mt-8">
+                <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                  Distribuzione Kcal per Pasto
+                </h3>
+                {dailyMealMacros && dailyMealMacros.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={400}>
+                    <PieChart>
+                      <Pie
+                        data={dailyMealMacros}
+                        dataKey="kcal"
+                        nameKey="pasto"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={150}
+                        fill="#8884d8"
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {dailyMealMacros.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={macroColors[entry.pasto]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-gray-500 italic">Nessun dato sulle calorie per pasto disponibile.</p>
+                )}
+              </div>
+              {/* Fine Nuovo Blocco */}
+
+            </>
           )}
         </div>
 
@@ -300,21 +415,21 @@ const NutritionalTrackerPage = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Nome</label>
                 <select
-                  {...register('nome', { required: 'Il nome è obbligatorio' })}
+                  {...register('nome', { required: 'Il nome è obbligatorio', valueAsNumber: true })}
                   className="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   <option value="">Seleziona...</option>
                   {tipoSelezionato === 'alimento'
                     ? alimenti.map((item) => (
-                        <option key={item.alimento_id} value={item.alimento_id}>
-                          {item.nome}
-                        </option>
-                      ))
+                      <option key={item.id_alimento} value={item.id_alimento}>
+                        {item.nome_alimento}
+                      </option>
+                    ))
                     : ricette.map((item) => (
-                        <option key={item.ricetta_id} value={item.ricetta_id}>
-                          {item.nome}
-                        </option>
-                      ))}
+                      <option key={item.ricetta_id} value={item.ricetta_id}>
+                        {item.nome}
+                      </option>
+                    ))}
                 </select>
                 {errors.nome && <span className="text-red-500 text-sm">{errors.nome.message}</span>}
               </div>
@@ -350,12 +465,12 @@ const NutritionalTrackerPage = () => {
             >
               {isSaving ? (
                 <>
-                  <LuLoaderCircle className="animate-spin mr-2" />
+                  <span className="animate-spin mr-2">⟳</span>
                   Salvataggio...
                 </>
               ) : (
                 <>
-                  <LuSave className="mr-2" />
+                  <span className="mr-2">✔️</span>
                   Aggiungi Consumo
                 </>
               )}
@@ -379,23 +494,34 @@ const NutritionalTrackerPage = () => {
             />
           </div>
 
-          {weeklyData && Object.keys(weeklyData).length > 0 && (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={Object.entries(weeklyData).map(([day, macros]) => ({
-                  day: day,
-                  ...macros,
-                }))}
-              >
-                <XAxis dataKey="day" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="kcal" stroke="#3b82f6" name="Kcal" />
-                <Line type="monotone" dataKey="proteine" stroke={macroColors.proteine} name="Proteine" />
-                <Line type="monotone" dataKey="carboidrati" stroke={macroColors.carboidrati} name="Carboidrati" />
-                <Line type="monotone" dataKey="lipidi" stroke={macroColors.lipidi} name="Lipidi" />
-              </LineChart>
-            </ResponsiveContainer>
+          {isLoading ? (
+            <div className="flex justify-center items-center h-64 text-indigo-600">
+              <span className="text-xl animate-pulse">⟳</span>
+              <span className="text-xl">Caricamento dati...</span>
+            </div>
+          ) : (
+            <>
+              {weeklyData && Object.keys(weeklyData).length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={Object.entries(weeklyData).map(([day, macros]) => ({
+                    day: day,
+                    ...macros,
+                  }))}
+                  >
+                    <XAxis dataKey="day" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="kcal" stroke="#3b82f6" name="Kcal" />
+                    <Line type="monotone" dataKey="proteine" stroke={macroColors.proteine} name="Proteine" />
+                    <Line type="monotone" dataKey="carboidrati" stroke={macroColors.carboidrati} name="Carboidrati" />
+                    <Line type="monotone" dataKey="lipidi" stroke={macroColors.lipidi} name="Lipidi" />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500 italic">Nessun dato settimanale disponibile per questo periodo.</p>
+              )}
+            </>
           )}
         </div>
       </div>
