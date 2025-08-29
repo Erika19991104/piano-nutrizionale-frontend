@@ -3,18 +3,23 @@ import React, { useEffect, useState } from 'react';
 // The main application component for the recipe book.
 // It manages all state, data fetching, and UI logic.
 function App() {
-  // State variables for managing data and UI states
+  // Stato per la lista di alimenti.
   const [ricette, setRicette] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedRicetta, setSelectedRicetta] = useState(null);
   const [macroData, setMacroData] = useState(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
-  
+
   // New state variables for managing ingredients and their mapping
   const [alimentiList, setAlimentiList] = useState([]); // List of ingredient objects
   const [alimentiIdToNameMap, setAlimentiIdToNameMap] = useState({}); // Map: id -> name
   const [loadingAlimenti, setLoadingAlimenti] = useState(true);
+  // NUOVO STATO PER LE CATEGORIE DEGLI ALIMENTI
+  const [categorieAlimenti, setCategorieAlimenti] = useState([]);
+  // NUOVO STATO PER GESTIRE LA CATEGORIA SELEZIONATA PER OGNI INGREDIENTE NEL FORM
+  const [selectedCategoryPerIngredient, setSelectedCategoryPerIngredient] = useState([]);
+
 
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -23,7 +28,7 @@ function App() {
   const [pastiOptions, setPastiOptions] = useState([]);
   const [proteineOptions, setProteineOptions] = useState([]);
   const [loadingFilterOptions, setLoadingFilterOptions] = useState(true);
-  
+
   // Form and modal state
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -97,6 +102,10 @@ function App() {
         }, {});
         setAlimentiIdToNameMap(idToNameMap);
 
+        // NUOVO: Genera l'array di categorie uniche
+        const categorieUniche = [...new Set(data.map(a => a.categoria))].sort();
+        setCategorieAlimenti(categorieUniche);
+
       } catch (err) {
         console.error("Errore nel recupero degli alimenti:", err);
         setError("Impossibile caricare la lista degli alimenti.");
@@ -136,6 +145,7 @@ function App() {
     setShowForm(false);
     setFormError(null);
     setError(null);
+    setSelectedCategoryPerIngredient([]); // Resetta lo stato delle categorie del form
 
     try {
       const detailsResponse = await fetch(`${API_BASE_URL}/api/ricette/${ricettaId}`);
@@ -182,6 +192,8 @@ function App() {
     setShowForm(true);
     setFormError(null);
     setShowSuccessMessage(false);
+    // Resetta lo stato delle categorie per il form
+    setSelectedCategoryPerIngredient(['']);
   };
 
   // Populates the form with the selected recipe's data for editing.
@@ -203,6 +215,12 @@ function App() {
       setShowForm(true);
       setFormError(null);
       setShowSuccessMessage(false);
+      // Popola lo stato delle categorie per il form in base agli alimenti
+      const categorieIniziali = selectedRicetta.ingredienti.map(ing => {
+        const alimentoCorrispondente = alimentiList.find(a => a.id_alimento === ing.id_alimento);
+        return alimentoCorrispondente ? alimentoCorrispondente.categoria : '';
+      });
+      setSelectedCategoryPerIngredient(categorieIniziali);
     }
   };
 
@@ -213,9 +231,26 @@ function App() {
   };
 
   // Handles changes for ingredient fields (id_alimento, quantita_g).
+  // Funzione per gestire i cambiamenti negli input degli ingredienti.
   const handleIngredientChange = (index, field, value) => {
     const newIngredients = [...formData.ingredienti];
-    newIngredients[index][field] = value;
+    if (field === 'id_alimento') {
+      newIngredients[index][field] = value ? parseInt(value) : '';
+    } else {
+      newIngredients[index][field] = value;
+    }
+    setFormData(prev => ({ ...prev, ingredienti: newIngredients }));
+  };
+
+  // NUOVO: Funzione per gestire il cambiamento di categoria
+  const handleCategoryChange = (index, category) => {
+    const newCategories = [...selectedCategoryPerIngredient];
+    newCategories[index] = category;
+    setSelectedCategoryPerIngredient(newCategories);
+
+    // Resetta l'alimento selezionato per quella riga
+    const newIngredients = [...formData.ingredienti];
+    newIngredients[index].id_alimento = '';
     setFormData(prev => ({ ...prev, ingredienti: newIngredients }));
   };
 
@@ -225,19 +260,24 @@ function App() {
       ...prev,
       ingredienti: [...prev.ingredienti, { id_alimento: '', quantita_g: 0 }]
     }));
+    // Aggiunge un nuovo elemento allo stato delle categorie del form
+    setSelectedCategoryPerIngredient(prev => [...prev, '']);
   };
 
   // Removes an ingredient row from the form.
   const handleRemoveIngredient = (index) => {
     const newIngredients = formData.ingredienti.filter((_, i) => i !== index);
     setFormData(prev => ({ ...prev, ingredienti: newIngredients }));
+    // Rimuove l'elemento corrispondente dallo stato delle categorie del form
+    const newCategories = selectedCategoryPerIngredient.filter((_, i) => i !== index);
+    setSelectedCategoryPerIngredient(newCategories);
   };
 
   // Handles form submission (create or update recipe).
   const handleSaveForm = async (e) => {
     e.preventDefault();
     setFormError(null);
-    
+
     // Validate required fields
     if (!formData.nome || !formData.pasto || !formData.proteina || formData.porzioni < 0 || formData.ingredienti.length === 0 || formData.ingredienti.some(ing => !ing.id_alimento || ing.quantita_g <= 0)) {
       setFormError("Nome, pasto, proteina, numero di porzioni (non negativo) e almeno un ingrediente valido (con nome e quantità maggiore di 0) sono campi obbligatori.");
@@ -256,7 +296,10 @@ function App() {
       porzioni: Number(formData.porzioni),
       procedimento: formData.descrizione,
       puoi_sostituire: formData.puoi_sostituire,
-      ingredienti: formData.ingredienti 
+      ingredienti: formData.ingredienti.map(ing => ({
+        ...ing,
+        id_alimento: String(ing.id_alimento) // Questo converte il numero in stringa
+      }))
     };
     console.log("Payload inviato:", payload);
 
@@ -313,6 +356,8 @@ function App() {
     });
     setSelectedRicetta(null);
     setMacroData(null);
+    // Resetta anche lo stato per le categorie del form
+    setSelectedCategoryPerIngredient([]);
   };
 
   // Opens the delete confirmation modal.
@@ -345,7 +390,7 @@ function App() {
       setMacroData(null);
       setShowSuccessMessage(true);
       setTimeout(() => setShowSuccessMessage(false), 3000);
-      
+
     } catch (err) {
       console.error("Errore nella cancellazione:", err);
       setError(err.message);
@@ -476,7 +521,7 @@ function App() {
             )}
           </ul>
         </div>
-        
+
         {/* Right Panel: Details, Form, and Modal */}
         <div className="w-full md:w-4/5 p-6 sm:p-8 flex flex-col relative">
           {showSuccessMessage && (
@@ -682,36 +727,51 @@ function App() {
                   <h3 className="text-lg font-bold text-gray-800 mb-4">Ingredienti*</h3>
                   {formData.ingredienti.map((ingrediente, index) => (
                     <div key={index} className="flex flex-col sm:flex-row items-end gap-4 mb-4">
+                      {/* Selezione Categoria */}
                       <div className="flex-1 w-full">
-                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={`ingrediente-${index}`}>Alimento</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
                         <select
-                          id={`ingrediente-${index}`}
-                          name="id_alimento"
+                          className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300 bg-white"
+                          value={selectedCategoryPerIngredient[index]}
+                          onChange={(e) => handleCategoryChange(index, e.target.value)}
+                        >
+                          <option value="">Seleziona categoria</option>
+                          {categorieAlimenti.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Selezione Alimento */}
+                      <div className="flex-1 w-full">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Alimento*</label>
+                        <select
                           value={ingrediente.id_alimento}
                           onChange={(e) => handleIngredientChange(index, 'id_alimento', e.target.value)}
                           required
                           className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300 bg-white"
                         >
-                          <option value="">Seleziona un alimento</option>
-                          {alimentiList.map(alimento => (
-                            <option key={alimento.id_alimento} value={alimento.id_alimento}>{alimento.nome_alimento}</option>
-                          ))}
+                          <option value="">Seleziona alimento</option>
+                          {alimentiList
+                            .filter(a => !selectedCategoryPerIngredient[index] || a.categoria === selectedCategoryPerIngredient[index])
+                            .map(alimento => (
+                              <option key={alimento.id_alimento} value={alimento.id_alimento}>{alimento.nome_alimento}</option>
+                            ))}
                         </select>
                       </div>
+                      {/* Quantità */}
                       <div className="flex-1 w-full">
-                        <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={`quantita-${index}`}>Quantità (g)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Quantità (g)*</label>
                         <input
                           type="number"
-                          id={`quantita-${index}`}
-                          name="quantita_g"
                           value={ingrediente.quantita_g}
-                          onChange={(e) => handleIngredientChange(index, 'quantita_g', parseInt(e.target.value))}
+                          onChange={(e) => handleIngredientChange(index, 'quantita_g', Number(e.target.value))}
                           required
                           min="1"
                           className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300"
                         />
                       </div>
-                      {formData.ingredienti.length > 1 && (
+                      {/* Bottone Rimuovi */}
+                      <div className="flex-shrink-0">
                         <button
                           type="button"
                           onClick={() => handleRemoveIngredient(index)}
@@ -719,21 +779,18 @@ function App() {
                           title="Rimuovi ingrediente"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                           </svg>
                         </button>
-                      )}
+                      </div>
                     </div>
                   ))}
                   <button
                     type="button"
                     onClick={handleAddIngredient}
-                    className="flex items-center space-x-2 px-6 py-3 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                    className="w-full mt-2 py-3 bg-gray-200 text-gray-700 rounded-full shadow-md hover:bg-gray-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
-                    </svg>
-                    <span>Aggiungi ingrediente</span>
+                    Aggiungi ingrediente
                   </button>
                 </div>
 
@@ -746,20 +803,20 @@ function App() {
                     onChange={handleFormChange}
                     rows="6"
                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-300"
-                  />
+                  ></textarea>
                 </div>
 
-                <div className="flex justify-end space-x-4 pt-4">
+                <div className="flex justify-end space-x-4 mt-6">
                   <button
                     type="button"
                     onClick={handleCancelForm}
-                    className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full shadow-md hover:bg-gray-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50"
+                    className="px-6 py-3 bg-gray-300 text-gray-800 rounded-full shadow-md hover:bg-gray-400 transition-colors duration-200 font-semibold focus:outline-none focus:ring-2 focus:ring-gray-500"
                   >
                     Annulla
                   </button>
                   <button
                     type="submit"
-                    className="px-6 py-3 bg-green-500 text-white rounded-full shadow-md hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                    className="px-6 py-3 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors duration-200 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     Salva Ricetta
                   </button>

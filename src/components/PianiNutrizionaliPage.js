@@ -26,6 +26,9 @@ const NutritionalTrackerPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  
+  // Stato per l'ordinamento della tabella
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' per ascendente, 'desc' per discendente
 
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm();
   const tipoSelezionato = useWatch({
@@ -52,24 +55,20 @@ const NutritionalTrackerPage = () => {
   }, [userId, selectedDate]);
 
   const fetchDailyMealMacros = useCallback(async () => {
-  try {
-    const macrosRes = await fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/macro_pasto`);
-    if (!macrosRes.ok) {
-      throw new Error('Errore nel recupero dei dati macro per pasto.');
+    try {
+      const macrosRes = await fetch(`${API_BASE_URL}/consumi/${userId}/${selectedDate}/macro_pasto`);
+      if (!macrosRes.ok) {
+        throw new Error('Errore nel recupero dei dati macro per pasto.');
+      }
+      const macrosData = await macrosRes.json();
+      setDailyMealMacros(macrosData); 
+    } catch (err) {
+      setError(err.message);
+      console.error(err);
+      setDailyMealMacros([]);
+      throw err;
     }
-    const macrosData = await macrosRes.json();
-    console.log('Dati macro per pasto ricevuti:', macrosData);
-    
-    // Rimuovi ".macro_per_pasto" per usare direttamente i dati
-    setDailyMealMacros(macrosData); 
-    
-  } catch (err) {
-    setError(err.message);
-    console.error(err);
-    setDailyMealMacros([]);
-    throw err;
-  }
-}, [userId, selectedDate]);
+  }, [userId, selectedDate]);
   
   const fetchDailySummary = useCallback(async () => {
     try {
@@ -190,7 +189,6 @@ const NutritionalTrackerPage = () => {
         throw new Error(`Errore durante l'inserimento: ${errorData.detail}`);
       }
       
-      // Aggiorniamo tutti i dati solo dopo il successo
       await fetchAllData();
       
       setSuccess("Consumo registrato con successo!");
@@ -214,6 +212,46 @@ const NutritionalTrackerPage = () => {
     cena: '#34d399',
     spuntino: '#c084fc',
   };
+
+  // Funzione per gestire il clic sull'intestazione di colonna del pasto
+  const handleSortByPasto = () => {
+    setSortOrder(prevOrder => prevOrder === 'asc' ? 'desc' : 'asc');
+  };
+
+  // Logica per l'ordinamento dell'array prima del rendering
+  const pastoOrder = ['colazione', 'pranzo', 'merenda', 'cena', 'spuntino'];
+  
+  const sortedDailySummary = [...dailySummary].sort((a, b) => {
+      const aIndex = pastoOrder.indexOf(a.pasto.toLowerCase());
+      const bIndex = pastoOrder.indexOf(b.pasto.toLowerCase());
+
+      if (sortOrder === 'asc') {
+          return aIndex - bIndex;
+      } else {
+          return bIndex - aIndex;
+      }
+  });
+
+  // Logica per raggruppare i dati e calcolare i totali per pasto
+  const groupedSummary = sortedDailySummary.reduce((acc, item) => {
+    const { pasto, kcal, proteine, lipidi, carboidrati } = item;
+    
+    if (!acc[pasto]) {
+      acc[pasto] = {
+        items: [],
+        totals: { kcal: 0, proteine: 0, lipidi: 0, carboidrati: 0 }
+      };
+    }
+
+    acc[pasto].items.push(item);
+    acc[pasto].totals.kcal += parseFloat(kcal);
+    acc[pasto].totals.proteine += parseFloat(proteine);
+    acc[pasto].totals.lipidi += parseFloat(lipidi);
+    acc[pasto].totals.carboidrati += parseFloat(carboidrati);
+    
+    return acc;
+  }, {});
+
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-8 text-gray-800 font-sans antialiased">
@@ -306,7 +344,16 @@ const NutritionalTrackerPage = () => {
                       <thead className="bg-gray-100 dark:bg-gray-800">
                         <tr>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Tipo</th>
-                          <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Pasto</th>
+                          <th 
+                            scope="col" 
+                            className="cursor-pointer px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                            onClick={handleSortByPasto}
+                          >
+                            Pasto
+                            <span className="ml-2">
+                                {sortOrder === 'asc' ? '▲' : '▼'}
+                            </span>
+                          </th>
                           <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Nome</th>
                           <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Quantità</th>
                           <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Kcal</th>
@@ -316,17 +363,31 @@ const NutritionalTrackerPage = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
-                        {dailySummary.map((item, index) => (
-                          <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-400">{item.tipo}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.pasto}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.nome}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.quantita !== null ? item.quantita.toFixed(0) : 'N/A'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.kcal !== null ? item.kcal.toFixed(2) : 'N/A'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.proteine !== null ? item.proteine.toFixed(2) : 'N/A'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.lipidi !== null ? item.lipidi.toFixed(2) : 'N/A'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.carboidrati !== null ? item.carboidrati.toFixed(2) : 'N/A'}</td>
-                          </tr>
+                        {Object.entries(groupedSummary).map(([pastoName, data]) => (
+                          <React.Fragment key={pastoName}>
+                            {/* Mappa gli item del pasto */}
+                            {data.items.map((item, index) => (
+                              <tr key={`${pastoName}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-400">{item.tipo}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.pasto}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{item.nome}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.quantita !== null ? item.quantita.toFixed(0) : 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.kcal !== null ? item.kcal.toFixed(2) : 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.proteine !== null ? item.proteine.toFixed(2) : 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.lipidi !== null ? item.lipidi.toFixed(2) : 'N/A'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-600 dark:text-gray-400">{item.carboidrati !== null ? item.carboidrati.toFixed(2) : 'N/A'}</td>
+                              </tr>
+                            ))}
+                            
+                            {/* Riga dei totali per pasto */}
+                            <tr className="bg-gray-200 dark:bg-gray-700 font-bold">
+                              <td colSpan="4" className="px-6 py-2 text-right text-sm text-gray-800 dark:text-gray-200 uppercase">Totale {pastoName}:</td>
+                              <td className="px-6 py-2 text-right text-sm text-gray-800 dark:text-gray-200">{data.totals.kcal.toFixed(2)}</td>
+                              <td className="px-6 py-2 text-right text-sm text-gray-800 dark:text-gray-200">{data.totals.proteine.toFixed(2)}</td>
+                              <td className="px-6 py-2 text-right text-sm text-gray-800 dark:text-gray-200">{data.totals.lipidi.toFixed(2)}</td>
+                              <td className="px-6 py-2 text-right text-sm text-gray-800 dark:text-gray-200">{data.totals.carboidrati.toFixed(2)}</td>
+                            </tr>
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -358,7 +419,7 @@ const NutritionalTrackerPage = () => {
                 <p className="text-gray-500 italic">Nessun dato sui pasti disponibile per questa data.</p>
               )}
               
-              {/* NUOVO BLOCCO: Grafico a torta per la distribuzione delle Kcal per pasto */}
+              {/* Grafico a torta per la distribuzione delle Kcal per pasto */}
               <div className="mt-8">
                 <h3 className="text-xl font-semibold mb-4 text-gray-700">
                   Distribuzione Kcal per Pasto
@@ -388,7 +449,6 @@ const NutritionalTrackerPage = () => {
                   <p className="text-gray-500 italic">Nessun dato sulle calorie per pasto disponibile.</p>
                 )}
               </div>
-              {/* Fine Nuovo Blocco */}
 
             </>
           )}
